@@ -8,7 +8,7 @@ const ProfileUploader = ({ onUploadSuccess, token }) => {
     const [isLoading, setIsLoading] = useState(false);
 
     const handleFileChange = (e) => {
-        setFiles(Array.from(e.target.files)); // Convert FileList to array
+        setFiles(Array.from(e.target.files));
     };
 
     const handleSubmit = async (e) => {
@@ -23,15 +23,11 @@ const ProfileUploader = ({ onUploadSuccess, token }) => {
         setErrors([]);
 
         try {
-            console.log("Uploading files:", files);
-            console.log("Token being sent:", token);
-            const result = await uploadProfiles(files, token); // Send all files at once
-            console.log("Upload result:", result);
+            const result = await uploadProfiles(files, token);
             setMessages(result.results.map(r => `✅ ${r.filename} uploaded successfully.`));
             setErrors(result.errors.map(e => `❌ ${e}`));
             if (onUploadSuccess) onUploadSuccess();
         } catch (err) {
-            console.error("Upload error:", err);
             const errorMessage = err.response?.data?.detail || 'An error occurred.';
             setErrors([`❌ Upload failed: ${errorMessage}`]);
             setMessages([]);
