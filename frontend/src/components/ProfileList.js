@@ -1,58 +1,57 @@
 import React, { useState } from 'react';
-import { exportProfiles } from '../api/api';
+import { exportToCsv } from '../utils/exportToCsv';
+
+const SEARCH_FIELDS = [
+    { value: 'full_name', label: 'Full Name' },
+    { value: 'email', label: 'Email' },
+    { value: 'phone_number', label: 'Phone Number' },
+    { value: 'company_name', label: 'Company Name' },
+    { value: 'customer_name', label: 'Customer Name' },
+    { value: 'role', label: 'Role' },
+    { value: 'duration', label: 'Duration' },
+    { value: 'skills_technologies', label: 'Skills/Technologies' },
+    { value: 'industry_domain', label: 'Industry/Domain' },
+    { value: 'location', label: 'Location' },
+];
 
 const ProfileList = ({ profiles, onSearch, error }) => {
     const [inputValue, setInputValue] = useState("");
+    const [searchField, setSearchField] = useState("full_name");
 
-    const handleExport = async () => {
-        try {
-            await exportProfiles(inputValue);
-        } catch (err) {
-            console.error('Failed to export profiles:', err);
-            alert('Failed to export data.');
-        }
+    const handleExport = () => {
+        exportToCsv(profiles, "resume_export");
     };
 
-    // Call the search function when button is clicked
     const handleSearch = () => {
-        // If input is empty, show all profiles
-        onSearch(inputValue.trim());
+        onSearch({ field: searchField, value: inputValue.trim() });
     };
 
-    // Optional: allow pressing Enter to trigger search
     const handleKeyDown = (e) => {
         if (e.key === 'Enter') {
             handleSearch();
         }
     };
 
-    // Helper to format skills string into tags
-    const renderSkills = (skills) => {
-        if (!skills) return null;
-        // Split by newlines and commas, trim, and filter out empty strings
-        const skillList = skills
-            .split(/\n|,/)
-            .map(s => s.replace(/^•\s*/, '').trim())
-            .filter(Boolean);
-        return (
-            <div className="skills">
-                {skillList.map((skill, idx) => (
-                    <span key={idx} className="skill-tag">{skill}</span>
-                ))}
-            </div>
-        );
-    };
-
     return (
         <div className="list-container profile-list-scroll">
             <h2>Candidate Database</h2>
-            <div className="search-bar">
+            <div className="search-bar" style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <select
+                    value={searchField}
+                    onChange={e => setSearchField(e.target.value)}
+                    style={{ height: "2.2rem", fontSize: "1rem" }}
+                >
+                    {SEARCH_FIELDS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                </select>
                 <input
                     type="text"
-                    placeholder="Search by name, email, or skill..."
+                    placeholder={`Search by ${SEARCH_FIELDS.find(f => f.value === searchField).label.toLowerCase()}...`}
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
+                    style={{ flex: 1 }}
                 />
                 <button onClick={handleSearch}>Search</button>
                 <button onClick={handleExport} disabled={profiles.length === 0}>Export as CSV</button>
@@ -60,70 +59,59 @@ const ProfileList = ({ profiles, onSearch, error }) => {
 
             {error && <p className="message error">{error}</p>}
 
-            <div>
-                <table className="profile-table">
-                    <thead>
-                        <tr>
-                            <th>Name / Contact</th>
-                            <th>Education</th>
-                            <th>Experience</th>
-                            <th>Skills</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {profiles.length > 0 ? (
-                            profiles.map((profile) => (
-                                <tr key={profile.id}>
-                                    <td>
-                                        <strong>{profile.name || 'N/A'}</strong>
-                                        <div style={{ fontSize: "0.95em", marginTop: "0.3em" }}>
-                                            <div><strong>Email:</strong> {profile.contact?.email || 'N/A'}</div>
-                                            <div><strong>Phone:</strong> {profile.contact?.phone || 'N/A'}</div>
+            {profiles.length > 0 ? (
+                profiles.map((profile, idx) => (
+                    <div key={`${profile.email || ''}_${profile.phone_number || ''}_${idx}`} className="profile-card">
+                        <div className="profile-header">
+                            <div>
+                                <strong>Full Name:</strong> {profile.full_name || 'N/A'}
+                            </div>
+                            <div>
+                                <strong>Email:</strong> {profile.email || 'N/A'}
+                            </div>
+                            <div>
+                                <strong>Phone Number:</strong> {profile.phone_number || 'N/A'}
+                            </div>
+                        </div>
+                        <div className="work-exp-section">
+                            <h4>Work Experience:</h4>
+                            <div className="work-exp-grid">
+                                {Array.isArray(profile.work_experience) && profile.work_experience.length > 0 ? (
+                                    profile.work_experience.map((exp, wid) => (
+                                        <div key={wid} className="work-exp-card">
+                                            <div className="work-exp-title">
+                                                <strong>{exp.role || 'N/A'}</strong>
+                                                {exp.company_name ? <> at <span>{exp.company_name}</span></> : null}
+                                            </div>
+                                            <div className="work-exp-details">
+                                                <div><strong>Client/Customer:</strong> {exp.customer_name || 'N/A'}</div>
+                                                <div><strong>Duration:</strong> {exp.duration || 'N/A'}</div>
+                                                <div><strong>Industry/Domain:</strong> {exp.industry_domain || 'N/A'}</div>
+                                                <div><strong>Location:</strong> {exp.location || 'N/A'}</div>
+                                                <div>
+                                                    <strong>Skills/Technologies:</strong>
+                                                    <div className="skills-list">
+                                                        {Array.isArray(exp.skills_technologies) && exp.skills_technologies.length > 0
+                                                            ? exp.skills_technologies.map((skill, sid) => (
+                                                                <span key={sid} className="skill-tag">{skill}</span>
+                                                            ))
+                                                            : <span className="skill-tag">N/A</span>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </td>
-                                    <td>
-                                        {Array.isArray(profile.education) && profile.education.length > 0 ? (
-                                            <ul>
-                                                {profile.education.map((edu, idx) => (
-                                                    <li key={idx}>
-                                                        <strong>{edu.institution}</strong><br />
-                                                        {edu.degree}<br />
-                                                        {edu.date}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        ) : 'N/A'}
-                                    </td>
-                                    <td>
-                                        {Array.isArray(profile.experience) && profile.experience.length > 0 ? (
-                                            <ul>
-                                                {profile.experience.map((exp, idx) => (
-                                                    <li key={idx}>
-                                                        <strong>{exp.customer}</strong> - {exp.role}<br />
-                                                        {exp.project_dates}<br />
-                                                        {exp.technology && exp.technology.length > 0 && (
-                                                            <span>
-                                                                <em>Tech:</em> {exp.technology.join(', ')}
-                                                            </span>
-                                                        )}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        ) : 'N/A'}
-                                    </td>
-                                    <td>
-                                        {renderSkills(profile.skills)}
-                                    </td>
-                                </tr>
-                            ))
-                        ) : (
-                            <tr>
-                                <td colSpan="4">No profiles found.</td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </div>
+                                    ))
+                                ) : (
+                                    <div>No work experience</div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                ))
+            ) : (
+                <div style={{ textAlign: "center", marginTop: "2rem" }}>No profiles found.</div>
+            )}
         </div>
     );
 };

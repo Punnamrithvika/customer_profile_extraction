@@ -1,37 +1,25 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
+from pydantic import BaseModel
 
-class Contact(BaseModel):
-    email: Optional[str]
-    phone: Optional[str]
-    location: Optional[str] = ""
-    links: Optional[List[str]] = []
-
-class ExperienceEntry(BaseModel):
-    customer: Optional[str]
-    role: Optional[str]
-    project_dates: Optional[str]
-    technology: Optional[List[str]] = []
-
-class EducationEntry(BaseModel):
-    institution: Optional[str]
-    degree: Optional[str]
-    date: Optional[str]
+class WorkExperienceEntry(BaseModel):
+    company_name: Optional[str] = None
+    customer_name: Optional[str] = None
+    role: Optional[str] = None
+    duration: Optional[str] = None
+    skills_technologies: Optional[List[str]] = []
+    industry_domain: Optional[str] = None
+    location: Optional[str] = None
 
 class ResumeDataBase(BaseModel):
-    name: Optional[str]
-    title: Optional[str]
-    contact: Optional[Contact] = None
-    experience: Optional[List[ExperienceEntry]] = []
-    education: Optional[List[EducationEntry]] = []
-    skills: Optional[str]
-    all_links: Optional[List[str]] = []
+    id: Optional[int] = None
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    phone_number: Optional[str] = None
+    work_experience: Optional[List[WorkExperienceEntry]] = []
 
 class ResumeDataCreate(ResumeDataBase):
     pass
 
 class ResumeData(ResumeDataBase):
-    id: int
-
     class Config:
         from_attributes = True

@@ -1,54 +1,75 @@
 import React, { useState } from 'react';
-import { uploadProfile } from '../api/api';
+import { uploadProfiles } from '../api/api';
 
-const ProfileUploader = ({ onUploadSuccess, token }) => { // <-- Accept token
-    const [file, setFile] = useState(null);
-    const [message, setMessage] = useState('');
-    const [error, setError] = useState('');
+const ProfileUploader = ({ onUploadSuccess, token }) => {
+    const [files, setFiles] = useState([]);
+    const [messages, setMessages] = useState([]);
+    const [errors, setErrors] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
 
     const handleFileChange = (e) => {
-        setFile(e.target.files[0]);
+        setFiles(Array.from(e.target.files)); // Convert FileList to array
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!file) {
-            setError('Please select a file to upload.');
+        if (files.length === 0) {
+            setErrors(['Please select one or more resume files to upload.']);
             return;
         }
 
         setIsLoading(true);
-        setMessage('');
-        setError('');
+        setMessages([]);
+        setErrors([]);
 
         try {
-            const uploadedProfile = await uploadProfile(file, token); // <-- Pass token
-            setMessage(`Successfully uploaded profile for ${uploadedProfile.name}!`);
-            onUploadSuccess(); // Notify parent component
+            console.log("Uploading files:", files);
+            console.log("Token being sent:", token);
+            const result = await uploadProfiles(files, token); // Send all files at once
+            console.log("Upload result:", result);
+            setMessages(result.results.map(r => `✅ ${r.filename} uploaded successfully.`));
+            setErrors(result.errors.map(e => `❌ ${e}`));
+            if (onUploadSuccess) onUploadSuccess();
         } catch (err) {
-            const errorMessage = err.response?.data?.detail || 'An unexpected error occurred.';
-            setError(`Upload failed: ${errorMessage}`);
-            console.error(err);
+            console.error("Upload error:", err);
+            const errorMessage = err.response?.data?.detail || 'An error occurred.';
+            setErrors([`❌ Upload failed: ${errorMessage}`]);
+            setMessages([]);
         } finally {
             setIsLoading(false);
-            setFile(null); // Reset file input
+            setFiles([]);
             e.target.reset();
         }
     };
 
     return (
         <div className="uploader-container">
-            <h2>Upload Resume</h2>
+            <h2>Upload Resumes</h2>
             <p>Supported formats: PDF, DOCX</p>
             <form onSubmit={handleSubmit}>
-                <input type="file" onChange={handleFileChange} accept=".pdf,.docx" disabled={isLoading} />
-                <button type="submit" disabled={!file || isLoading}>
-                    {isLoading ? 'Uploading...' : 'Upload & Process'}
+                <input
+                    type="file"
+                    multiple
+                    onChange={handleFileChange}
+                    accept=".pdf,.docx,.doc"
+                    disabled={isLoading}
+                />
+                <button type="submit" disabled={files.length === 0 || isLoading}>
+                    {isLoading ? 'Uploading...' : 'Upload All'}
                 </button>
             </form>
-            {message && <p className="message success">{message}</p>}
-            {error && <p className="message error">{error}</p>}
+
+            {messages.length > 0 && (
+                <div className="message success">
+                    {messages.map((msg, i) => <p key={i}>{msg}</p>)}
+                </div>
+            )}
+
+            {errors.length > 0 && (
+                <div className="message error">
+                    {errors.map((err, i) => <p key={i}>{err}</p>)}
+                </div>
+            )}
         </div>
     );
 };

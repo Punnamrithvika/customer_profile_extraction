@@ -8,12 +8,58 @@
 
 .App-header {
     background-color: #282c34;
-    padding: 20px;
+    padding: 20px 32px 20px 32px;
     color: white;
     margin-bottom: 2rem;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.uploader-container, .list-container {
+.header-btn-group {
+    position: absolute;
+    right: 32px;
+    top: 22px;
+    display: flex;
+    gap: 16px; /* space between buttons */
+}
+
+.header-users-btn {
+    padding: 8px 18px;
+    font-size: 1rem;
+    border-radius: 6px;
+    background: #e2252b;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.header-users-btn:hover {
+    background: #b71c1c;
+}
+
+.upload-container h2,
+.upload-container p{
+    text-align: center;
+    align-items: center;
+    justify-content: center;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
+.upload-container form {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    gap: 12px; /* space between input and button */
+}
+
+.upload-container,.list-container {
     max-width: 800px;
     margin: 0 auto;
     padding: 20px;
@@ -86,31 +132,11 @@ button:disabled {
     margin-right: 10px;
 }
 
-.profile-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 20px;
-}
-
-.profile-table th, .profile-table td {
-    border: 1px solid #cecaca;
-    padding: 12px;
-    text-align: left;
-}
-
-.profile-table th {
-    background-color: #c8c1c1;
-    font-weight: bold;
-}
-
-.profile-table tr {
-    background-color: #f9f9f9;
-}
-
-.profile-table td .skills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
+.search-bar select {
+    padding: 0.3rem 0.7rem;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+    background: #fff;
 }
 
 .skill-tag {
@@ -209,30 +235,6 @@ body {
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }
 
-/* Optional: Style for the table if you use a table layout */
-.resume-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-}
-
-.resume-table th, .resume-table td {
-  padding: 12px 10px;
-  border-bottom: 1px solid #eee;
-  text-align: left;
-}
-
-.resume-table th {
-  background: #f5f5f5;
-  font-weight: 600;
-}
-
-.resume-table tr:last-child td {
-  border-bottom: none;
-}
-
 .profile-list-scroll {
   padding-right: 8px;
   background: #fafbfc;
@@ -246,31 +248,6 @@ body {
   justify-content: center;
   align-items: center;
   background: linear-gradient(to right, #d9d9de, #c2b0b0);
-}
-
-.profile-table th:nth-child(2), /* Education */
-.profile-table td:nth-child(2),
-.profile-table th:nth-child(3), /* Experience */
-.profile-table td:nth-child(3) {
-  width: 320px;
-  min-width: 250px;
-  max-width: 400px;
-}
-
-/* Reduce the width of the 1st (Name/Contact) column */
-.profile-table th:nth-child(1),
-.profile-table td:nth-child(1) {
-  width: 120px;
-  min-width: 100px;
-  max-width: 160px;
-}
-
-/* Increase the width of the 4th (Skills) column */
-.profile-table th:nth-child(4),
-.profile-table td:nth-child(4) {
-  width: 220px;
-  min-width: 180px;
-  max-width: 320px;
 }
 
 html, body {
@@ -287,20 +264,98 @@ html, body {
   box-sizing: border-box;
 }
 
-.profile-table,
-.resume-table {
-  table-layout: fixed;
-  width: 100%;
-  max-width: 100vw;
-  word-break: break-word;
+.profile-card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    margin-bottom: 2.5rem;
+    padding: 1.5rem 2rem;
+    width: 100%;
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
 }
 
-.profile-table th,
-.profile-table td,
-.resume-table th,
-.resume-table td {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 1px;
+.profile-header {
+    display: flex;
+    gap: 2.5rem;
+    font-size: 1.08rem;
+    margin-bottom: 1.2rem;
+    flex-wrap: wrap;
 }
+
+.work-exp-section h4 {
+    margin-bottom: 1rem;
+    margin-top: 0.5rem;
+    font-size: 1.1rem;
+    color: #222;
+}
+
+.work-exp-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+}
+
+.work-exp-card {
+    background: #f7f7fa;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    padding: 1.1rem 1.2rem;
+    min-width: 260px;
+    max-width: 320px;
+    flex: 1 1 260px;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    text-align: left;           /* <-- Add this line */
+}
+
+.work-exp-title,
+.work-exp-details {
+    text-align: left;           /* <-- Add this line for extra safety */
+}
+
+.work-exp-title {
+    font-size: 1.08rem;
+    font-weight: 600;
+    margin-bottom: 0.7rem;
+    color: #1a237e;
+}
+
+.work-exp-title span {
+    color: #222;
+    font-weight: 500;
+}
+
+.work-exp-details {
+    font-size: 0.98rem;
+    color: #444;
+    margin-bottom: 0.2rem;
+}
+
+.skills-list {
+    margin-top: 0.4rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.skill-tag {
+    background-color: #e0e0e0;
+    color: #333;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 13px;
+    margin-bottom: 2px;
+}
+
+.users-btn {
+    margin-left: 16px;
+    cursor: pointer;
+    vertical-align: middle;
+    padding: 6px 14px;
+    font-size: 1rem;
+}
+

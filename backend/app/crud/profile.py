@@ -4,17 +4,20 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.models.resume import ResumeData  # Updated import
 from app.schemas.resume import ResumeDataCreate  # Updated import
 
-def get_profile_by_email(db: Session, email: str):
-    return db.query(ResumeData).filter(ResumeData.contact['email'].cast(String) == email).first()
+def get_profile_by_all_keys(db: Session, full_name: str, email: str, phone_number: str):
+    return db.query(ResumeData).filter(
+        ResumeData.full_name == full_name,
+        ResumeData.email == email,
+        ResumeData.phone_number == phone_number
+    ).first()
 
 def get_profiles(db: Session, skip: int = 0, limit: int = 100, search: str = None):
     query = db.query(ResumeData)
     if search:
         search_lower = f"%{search.lower()}%"
         query = query.filter(
-            func.lower(ResumeData.name).like(search_lower) |
-            func.lower(ResumeData.contact['email'].cast(String)).like(search_lower) |
-            func.lower(ResumeData.skills).like(search_lower)
+            func.lower(ResumeData.full_name).like(search_lower) |
+            func.lower(ResumeData.email).like(search_lower)
         )
     return query.offset(skip).limit(limit).all()
 

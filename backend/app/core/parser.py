@@ -1,408 +1,320 @@
-import io
+import os
+import json
 import re
-import spacy
-import fitz  # PyMuPDF
-import csv
-from keybert import KeyBERT
-from transformers import pipeline
-from sentence_transformers import SentenceTransformer, util
+import traceback
+import fitz  # PyMuPDF for PDF
+import cohere
+from dotenv import load_dotenv
 from docx import Document
+from docx.table import Table
+from docx.text.paragraph import Paragraph
+import time
+import tempfile
 
-kw_model = KeyBERT(model='all-MiniLM-L6-v2')
-resume_ner = pipeline("ner", model="dslim/bert-base-NER", aggregation_strategy="simple")
-embed_model = SentenceTransformer('all-MiniLM-L6-v2')
-nlp = spacy.load("en_core_web_sm")
-name_pipe = pipeline("ner", grouped_entities=True)
+load_dotenv()
 
-# Define all possible section heading variants
-EXPERIENCE_HEADINGS = {
-    "EXPERIENCE", "EXPERIENCES", "WORK EXPERIENCE", "WORK", "WORK HISTORY",
-    "PROFESSIONAL EXPERIENCE", "EMPLOYMENT", "EMPLOYMENT HISTORY", "CAREER HISTORY"
-}
-EDUCATION_HEADINGS = {
-    "EDUCATION", "EDUCATIONAL QUALIFICATION", "ACADEMICS", "ACADEMIC BACKGROUND", "EDUCATIONAL BACKGROUND", "QUALIFICATIONS"
-}
-SKILLS_HEADINGS = {
-    "SKILLS", "TECHNICAL SKILLS", "TECHNICAL EXPERTISE", "SKILL SET", "CORE COMPETENCIES", "AREAS OF EXPERTISE"
-}
-PROJECTS_HEADINGS = {
-    "PROJECTS", "PERSONAL PROJECTS", "ACADEMIC PROJECTS", "PROJECT EXPERIENCE", "PROJECT WORK"
-}
-CERTIFICATIONS_HEADINGS = {
-    "CERTIFICATIONS", "CERTIFICATION", "LICENSES", "LICENSE", "PROFESSIONAL CERTIFICATIONS"
-}
-ACHIEVEMENTS_HEADINGS = {
-    "ACHIEVEMENTS", "AWARDS", "HONORS", "HONOURS", "RECOGNITION", "ACCOMPLISHMENTS"
-}
-OBJECTIVE_HEADINGS = {
-    "OBJECTIVE", "CAREER OBJECTIVE", "PROFESSIONAL OBJECTIVE", "SUMMARY", "PROFILE SUMMARY", "PROFESSIONAL SUMMARY"
-}
-
-# Combine for extraction and all possible headings
-EXTRACT_SECTIONS = (
-    EDUCATION_HEADINGS |
-    SKILLS_HEADINGS |
-    EXPERIENCE_HEADINGS
-)
-ALL_SECTION_HEADINGS = (
-    EXTRACT_SECTIONS |
-    PROJECTS_HEADINGS |
-    CERTIFICATIONS_HEADINGS |
-    ACHIEVEMENTS_HEADINGS |
-    OBJECTIVE_HEADINGS
-)
-
-def load_tech_keywords(csv_path):
-    with open(csv_path, newline='', encoding='utf-8') as f:
-        reader = csv.reader(f)
-        header = next(reader)  # skip header
-        return set(row[0].strip().lower() for row in reader if row)
-
-# Load tech keywords once at module level
-TECH_KEYWORDS = load_tech_keywords("app/skills.csv")
-
-def extract_text_from_pdf_bytes(file_bytes):
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    lines = []
-    for page in doc:
-        blocks = page.get_text("blocks")
-        blocks.sort(key=lambda b: (round(b[1]), round(b[0])))
-        for b in blocks:
-            for line in b[4].split('\n'):
-                if line.strip():
-                    lines.append(line.strip())
-    return "\n".join(lines)
+API_KEY = os.getenv("COHERE_API_KEY")
+if not API_KEY:
+    raise RuntimeError("COHERE_API_KEY not set in environment variables or .env file.")
+co = cohere.Client(API_KEY)
 
 
-def extract_text_from_docx_bytes(file_bytes):
-    doc = Document(io.BytesIO(file_bytes))
-    return "\n".join([para.text.strip() for para in doc.paragraphs if para.text.strip()])
+def build_prompt(resume_text: str) -> str:
+    return f"""
+You are an expert resume data extraction system. Your sole output MUST be a single, valid JSON object. 
+Extract the following information from the provided resume text.
 
-def extract_name_and_title(lines):
-    name = ""
-    title = ""
+The JSON object must have these top-level keys:
+1.  "Full Name": The full name of the person. If not found, use JSON null (not the string "null").
+2.  "Email": The primary email address. If not found, use JSON null.
+3.  "Phone Number": The primary phone number. If not found, use JSON null.
+4.  "Work Experience": An array of objects. Each object represents a distinct work experience.
 
-    # Use transformer NER on the first line to get name
-    if lines:
-        entities = name_pipe(lines[0])
-        for ent in entities:
-            if ent['entity_group'] == "PER":
-                name = ent['word'].replace('##', '')
-                break
+For each object in the "Work Experience" array, provide these keys:
+    a.  "Company Name": (string) The name of the company. If not found, use the string "N/A".
+    b.  "Customer Name": (string) The client/customer name. If internal or not mentioned, use "N/A".
+    c.  "Role": (string) The job title/role. If not found, use "N/A".
+    d.  "Duration": (string) The period worked (e.g., 'Jan 2020 - Dec 2022'). If not found, use "N/A".
+    e.  "Skills/Technologies": (array of strings) Key skills/technologies for this role. If none found, use an empty array []. All strings in this array MUST be in double quotes.
+    f.  "Industry/Domain": (string) Industry sector. If not found, use "N/A".
+    g.  "Location": (string) Geographical region (e.g., "North America", "Remote"). If not found, use "N/A".
 
-        # Try spaCy NER if transformer NER fails
-        if not name:
-            doc = nlp(lines[0])
-            for ent in doc.ents:
-                if ent.label_ == "PERSON":
-                    name = ent.text
-                    break
+IMPORTANT JSON Structure Rules:
+- The entire output MUST be a single JSON object. Do NOT include any explanatory text, markdown formatting (like \\`json), or anything else before or after the JSON object.
+- ALL string values, including keys and all textual data, MUST be enclosed in double quotes.
+- If a specific Work Experience entry is badly garbled, incomplete, or cannot be reliably extracted to fit the defined structure, OMIT that entire entry from the 'Work Experience' array. Ensure the 'Work Experience' array itself remains valid JSON (e.g., [] if all entries are omitted, or [{{...valid_entry...}}]).
+- Ensure no unquoted words or characters appear directly within arrays or objects outside of quoted strings.
+- Between the closing brace }} of one work experience object and the comma , and opening brace {{ of the next (or the final closing bracket ]] of the array), there must be absolutely no other text or characters.
 
-        # Heuristic: Use the first line that looks like a name
-        if not name:
-            for line in lines[:5]:  # Check first 5 lines
-                if (
-                    not is_section(line)
-                    and not re.search(r"@|\d{3}|\d{10}|https?://|\.com/|linkedin|github|leetcode", line.lower())
-                ):
-                    words = line.strip().split()
-                    # Name is usually 2-4 words, all capitalized, no digits
-                    if 1 < len(words) <= 4 and all(w[0].isupper() for w in words) and all(w.isalpha() for w in words):
-                        name = line.strip()
-                        break
+Example structure:
+{{
+  "Full Name": "Jane Doe",
+  "Email": "jane.doe@example.com",
+  "Phone Number": "123-456-7890",
+  "Work Experience": [
+    {{
+      "Company Name": "Tech Solutions Inc.",
+      "Customer Name": "Client X",
+      "Role": "Software Engineer",
+      "Duration": "Jan 2020 - Present",
+      "Skills/Technologies": ["Java", "Spring Boot", "AWS"],
+      "Industry/Domain": "Technology",
+      "Location": "North America"
+    }},
+    {{
+      "Company Name": "Old Company LLC",
+      "Customer Name": "N/A",
+      "Role": "Junior Developer",
+      "Duration": "May 2018 - Dec 2019",
+      "Skills/Technologies": [],
+      "Industry/Domain": "N/A",
+      "Location": "Remote"
+    }}
+  ]
+}}
+If the input text does not appear to be a resume, or no information can be extracted:
+{{
+  "Full Name": null,
+  "Email": null,
+  "Phone Number": null,
+  "Work Experience": []
+}}
 
-    # Define what's not a title: contact info or section headers
-    def is_not_title(line):
-        return (
-            re.search(r"@|\d{3}|\d{10}|https?://|\.com/|linkedin|github|leetcode", line.lower()) or
-            is_section(line)
-        )
+Resume Text:
+---
+{resume_text}
+---
+End of Resume Text. Output JSON object:
+"""
 
-    # Get first line with >5 words that is not contact or header
-    for line in lines[1:]:
-        if not is_not_title(line) and len(line.split()) > 5:
-            title = line
-            break
+def clean_json_string(json_str: str) -> str:
+    json_str = json_str.strip()
+    match = re.search(r"\{.*\}", json_str, re.DOTALL)
+    if match:
+        json_str = match.group(0)
+    json_str = re.sub(r",\s*([}\]])", r"\1", json_str)
+    json_str = re.sub(r"([\{\[])\s*,", r"\1", json_str)
+    json_str = re.sub(r",\s*,", ",", json_str)
+    json_str = re.sub(r"\[\s*,", "[", json_str)
+    json_str = re.sub(r",\s*\]", "]", json_str)
+    json_str = re.sub(r"\{\s*,", "{", json_str)
+    json_str = re.sub(r",\s*\}", "}", json_str)
+    return json_str
 
-    return name, title
+def extract_resume_data(resume_text: str):
+    if not resume_text.strip():
+        return {
+            "full_name": None,
+            "email": None,
+            "phone_number": None,
+            "work_experience": []
+        }
 
+    prompt = build_prompt(resume_text)
+    response = co.generate(
+        model="command-r-plus",
+        prompt=prompt,
+        temperature=0.2
+    )
 
-def extract_links(text):
-    return re.findall(r"https?://[^\s]+|www\.[^\s]+|[^\s]+\.com/[^\s]*", text)
+    raw_output = response.generations[0].text
+    json_str = clean_json_string(raw_output)
 
-def is_section(line):
-    return line.strip().upper() in ALL_SECTION_HEADINGS
+    try:
+        parsed = json.loads(json_str)
+    except Exception as e:
+        print("Raw Cohere output:\n", raw_output)
+        print("JSON parsing failed, retrying with chunked extraction...")
+        # Fallback: Use chunked extraction if JSON is incomplete or invalid
+        return extract_resume_data_chunked(resume_text)
 
-def parse_resume(file_bytes, filename):
-    # Determine file type and extract text
-    if filename.lower().endswith(".pdf"):
-        text = extract_text_from_pdf_bytes(file_bytes)
-    elif filename.lower().endswith(".docx"):
-        text = extract_text_from_docx_bytes(file_bytes)
-    else:
-        raise ValueError("Unsupported file type")
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-    resume = {
-        "name": "",
-        "title": "",
-        "contact": {
-            "email": "",
-            "phone": "",
-            "location": "",
-            "links": []
-        },
-        "experience": [],
-        "education": [],
-        "skills": "",
-        "all_links": []
+    work_exp = parsed.get("Work Experience", [])
+    mapped_work_exp = []
+    if isinstance(work_exp, list):
+        for exp in work_exp:
+            if isinstance(exp, dict):
+                mapped_work_exp.append({
+                    "company_name": exp.get("Company Name", "N/A"),
+                    "customer_name": exp.get("Customer Name", "N/A"),
+                    "role": exp.get("Role", "N/A"),
+                    "duration": exp.get("Duration", "N/A"),
+                    "skills_technologies": [s for s in exp.get("Skills/Technologies", []) if isinstance(s, str) and s.strip()],
+                    "industry_domain": exp.get("Industry/Domain", "N/A"),
+                    "location": exp.get("Location", "N/A")
+                })
+
+    return {
+        "full_name": parsed.get("Full Name"),
+        "email": parsed.get("Email"),
+        "phone_number": parsed.get("Phone Number"),
+        "work_experience": mapped_work_exp
     }
 
-    resume["all_links"] = extract_links(text)
-    resume["name"], resume["title"] = extract_name_and_title(lines)
-    contact_block = " ".join(lines[:10])
-    email_match = re.search(r"[\w\.-]+@[\w\.-]+", contact_block)
-    phone_match = re.search(r"\d{10}|\d{3}-\d{3}-\d{4}", contact_block)
-    resume["contact"]["email"] = email_match.group(0) if email_match else ""
-    resume["contact"]["phone"] = phone_match.group(0) if phone_match else ""
-    resume["contact"]["links"] = extract_links(contact_block)
-    sections = {key: [] for key in EXTRACT_SECTIONS}
-    current = None
+def iter_block_items(parent):
+    """Yield paragraphs and tables in document order."""
+    for child in parent.element.body.iterchildren():
+        if child.tag.endswith('}p'):
+            yield Paragraph(child, parent)
+        elif child.tag.endswith('}tbl'):
+            yield Table(child, parent)
+
+def extract_text_from_docx(file_path):
+    doc = Document(file_path)
+    content = []
+    for block in iter_block_items(doc):
+        if isinstance(block, Paragraph):
+            text = block.text.strip()
+            if text:
+                content.append(text)
+        elif isinstance(block, Table):
+            for row in block.rows:
+                row_text = " | ".join(cell.text.strip() for cell in row.cells)
+                if row_text:
+                    content.append(row_text)
+    return "\n".join(content)
+
+def extract_text_from_file(filepath):
+    ext = filepath.lower().split(".")[-1]
+    if ext == "pdf":
+        doc = fitz.open(filepath)
+        return "\n".join(page.get_text() for page in doc)
+    elif ext == "docx":
+        return extract_text_from_docx(filepath)
+    elif ext == "doc":
+        print(f"Skipping {filepath}, convert into .docx first.")
+        return ""
+    else:
+        raise ValueError("Unsupported file type: " + ext)
+
+def extract_email_from_lines(lines):
     for line in lines:
-        upper_line = line.strip().upper()
-        if upper_line in ALL_SECTION_HEADINGS:
-            current = upper_line
-        elif current in sections:
-            sections[current].append(line)
-    resume["education"] = parse_education(sections["EDUCATION"])
-    resume["skills"] = "\n".join(sections["SKILLS"]).strip()
-    resume["experience"] = parse_experiences(sections["EXPERIENCES"])
-    return resume
+        match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', line)
+        if match:
+            return match.group(0)
+    return None
 
-def extract_skills_from_text(text, tech_keywords):
-    found = set()
-    text_lower = text.lower()
-    for skill in tech_keywords:
-        if skill in text_lower:
-            found.add(skill)
-    return sorted(found)
+def extract_phone_from_lines(lines):
+    for line in lines:
+        match = re.search(r'(\+?\d[\d\-\(\) ]{7,}\d)', line)
+        if match:
+            return match.group(0)
+    return None
 
-def postprocess_resume_skills(extracted_data, tech_keywords):
-    # When extracting skills, use the extract_technologies function
-    if not extracted_data.get("skills"):
-        full_text = extracted_data.get("full_text", "")
-        extracted_skills = extract_technologies(full_text, TECH_KEYWORDS)
-        extracted_data["skills"] = ", ".join(extracted_skills)
-    else:
-        full_text = extracted_data.get("full_text", "")
-        existing_skills = set(s.strip().lower() for s in extracted_data["skills"].split(",") if s.strip())
-        additional_skills = set(extract_technologies(full_text, TECH_KEYWORDS))
-        all_skills = existing_skills.union(s.lower() for s in additional_skills)
-        extracted_data["skills"] = ", ".join(sorted(s.title() for s in all_skills))
-    return extracted_data
+def parse_resume(file_bytes, filename):
+    """
+    Accepts file bytes and filename, extracts text, parses resume, and returns structured data.
+    """
+    ext = filename.lower().split(".")[-1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmp:
+        tmp.write(file_bytes)
+        tmp_path = tmp.name
 
-def parse_education(lines):
-    result = []
-    i = 0
+    try:
+        text = extract_text_from_file(tmp_path)
+        result = extract_resume_data(text)
+        # If all are missing, try extracting from top 5 lines
+        if not result.get("full_name") and not result.get("email") and not result.get("phone_number"):
+            lines = [l.strip() for l in text.splitlines() if l.strip()]
+            if result["email"]:
+                result["email"] = extract_email_from_lines(lines)
+            if result["phone_number"]:
+                result["phone_number"] = extract_phone_from_lines(lines)
+        return result
+    finally:
+        os.remove(tmp_path)
+        
+def split_experience_sections(resume_text, max_chunks=5):
+    """
+    Naive splitter: splits resume text into chunks based on 'Experience' or similar keywords.
+    You may want to improve this for your specific resume formats.
+    """
+    # Try to split by common section headers
+    sections = re.split(r'\n(?=Experience|Work History|Work Experience|Professional Experience|Employment History|Professional Background)', resume_text, flags=re.IGNORECASE)
+    print("Sections found:", sections)
+    # Always include the first section (personal info, summary, etc.)
+    head = sections[0]
+    experiences = sections
+    # Further split experiences if too many lines
+    chunks = []
+    chunk = []
+    for exp in experiences:
+        chunk.append(exp)
+        if len(chunk) >= max_chunks:
+            chunks.append('\n'.join(chunk))
+            chunk = []
+    if chunk:
+        chunks.append('\n'.join(chunk))
+    # Return head (for personal info) and experience chunks
+    return head, chunks
 
-    def is_date(s):
-        # Checks for year or month-year patterns
-        return bool(re.search(r'\d{4}', s)) or re.search(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b', s, re.I)
-
-    while i < len(lines):
-        institution = lines[i] if i < len(lines) else ""
-        degree = lines[i+1] if i+1 < len(lines) else ""
-        date = ""
-        extra = ""
-        if i+2 < len(lines):
-            if is_date(lines[i+2]):
-                date = lines[i+2]
-            else:
-                extra = lines[i+2]
-        edu = {
-            "institution": institution,
-            "degree": degree,
-            "date": date
+def extract_resume_data_chunked(resume_text: str, chunk_size=5, rate_limit_seconds=5):
+    if not resume_text.strip():
+        return {
+            "full_name": None,
+            "email": None,
+            "phone_number": None,
+            "work_experience": []
         }
-        # Optionally, you can store extra in edu if you want to process it later
-        result.append(edu)
-        # Move to next block (3 if date or extra present, else 2 or 1)
-        i += 3 if i+2 < len(lines) else (2 if i+1 < len(lines) else 1)
-    return result
 
-def clean_text(text):
-    text = text.lower()
-    text = re.sub(r"\bgained (hands-on )?experience\b", "", text)
-    text = re.sub(r"\b(used|working with|exposure to|familiar with|experience in)\b", "", text)
-    text = re.sub(r"[^\w\s\.\-]", "", text)
-    return re.sub(r"\s+", " ", text).strip()
+    # Split resume into head and experience chunks
+    head, exp_chunks = split_experience_sections(resume_text, max_chunks=chunk_size)
 
-def extract_technologies(text, tech_keywords, top_n=10):
-    cleaned = clean_text(text)
-    tech_keywords = {k.lower() for k in tech_keywords}
-    tech_found = set()
-
-    # 1️⃣ KeyBERT
-    keybert_kws = kw_model.extract_keywords(
-        cleaned,
-        keyphrase_ngram_range=(1, 3),
-        stop_words='english',
-        use_mmr=True,
-        diversity=0.7,
-        top_n=top_n
+    # 1. Extract personal info from the head section
+    prompt = build_prompt(head)
+    response = co.generate(
+        model="command-r-plus",
+        prompt=prompt,
+        temperature=0.2
     )
-    tech_found.update(k for k, _ in keybert_kws if k in tech_keywords)
+    raw_output = response.generations[0].text
+    json_str = clean_json_string(raw_output)
+    try:
+        parsed = json.loads(json_str)
+    except Exception as e:
+        print("Raw Cohere output (head):\n", raw_output)
+        raise ValueError("Failed to parse JSON response from Cohere (head)") from e
 
-    # 2️⃣ NER model — you forgot to assign ner_output
-    ner_output = resume_ner(text)
-    for ent in ner_output:
-        if ent['entity_group'] in ["MISC", "ORG"] and ent['word'].lower() in tech_keywords:
-            tech_found.add(ent['word'].lower())
+    # Get personal info
+    full_name = parsed.get("Full Name")
+    email = parsed.get("Email")
+    phone_number = parsed.get("Phone Number")
+    mapped_work_exp = []
 
-    # 3️⃣ Exact match from cleaned block
-    for skill in tech_keywords:
-        if re.search(r'\b' + re.escape(skill) + r'\b', cleaned):
-            tech_found.add(skill)
+    # 2. Extract work experiences from each experience chunk
+    for chunk in exp_chunks:
+        time.sleep(rate_limit_seconds)  # Respect Cohere rate limit
+        prompt = build_prompt(chunk)
+        response = co.generate(
+            model="command-r-plus",
+            prompt=prompt,
+            temperature=0.2
+        )
+        raw_output = response.generations[0].text
+        json_str = clean_json_string(raw_output)
+        try:
+            parsed_chunk = json.loads(json_str)
+            print("Parsed chunk:", parsed_chunk)
+        except Exception as e:
+            print("Raw Cohere output (chunk):\n", raw_output)
+            continue  # skip this chunk if it fails
 
-    # 4️⃣ Semantic similarity
-    block_emb = embed_model.encode(cleaned, convert_to_tensor=True)
-    keyword_embs = embed_model.encode(list(tech_keywords), convert_to_tensor=True)
-    cos_scores = util.cos_sim(block_emb, keyword_embs)[0]
-    for i, score in enumerate(cos_scores):
-        if score > 0.85:
-            tech_found.add(list(tech_keywords)[i])
+        work_exp = parsed_chunk.get("Work Experience", [])
+        if isinstance(work_exp, list):
+            for exp in work_exp:
+                if isinstance(exp, dict):
+                    mapped_work_exp.append({
+                        "company_name": exp.get("Company Name", "N/A"),
+                        "customer_name": exp.get("Customer Name", "N/A"),
+                        "role": exp.get("Role", "N/A"),
+                        "duration": exp.get("Duration", "N/A"),
+                        "skills_technologies": [s for s in exp.get("Skills/Technologies", []) if isinstance(s, str) and s.strip()],
+                        "industry_domain": exp.get("Industry/Domain", "N/A"),
+                        "location": exp.get("Location", "N/A")
+                    })
 
-    return sorted(t.title() for t in tech_found)
-
-def parse_experiences(lines):
-    experiences = []
-    i = 0
-    n = len(lines)
-
-    def is_date(s):
-        return bool(re.search(r'\d{4}', s)) or re.search(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b', s, re.I)
-
-    def flush_block(block):
-        if not block:
-            return
-
-        customer, role, date, tech_lines = "", "", "", []
-        i = 0
-
-        if i < len(block):
-            customer = block[i]; i += 1
-        if i < len(block):
-            role = block[i]; i += 1
-        if i < len(block):
-            # Check if this line is a date
-            if is_date(block[i]):
-                date = block[i]
-                i += 1
-            else:
-                # Not a date, treat as extra detail for tech_lines
-                tech_lines.append(block[i])
-                i += 1
-        tech_lines += block[i:]
-
-        tech_text = " ".join(tech_lines)
-        tech_set = extract_technologies(tech_text, TECH_KEYWORDS)
-
-        experiences.append({
-            "customer": customer,
-            "role": role,
-            "project_dates": date,
-            "technology": sorted(tech_set)
-        })
-
-
-    current_block = []
-    while i < n:
-        line = lines[i]
-        if (
-            i + 2 < n and
-            not is_section(lines[i]) and
-            not is_section(lines[i + 1]) and
-            is_date(lines[i + 2])
-        ):
-            # Found start of a new block
-            if current_block:
-                flush_block(current_block)
-                current_block = []
-            current_block = [lines[i], lines[i + 1], lines[i + 2]]
-            i += 3
-        else:
-            current_block.append(line)
-            i += 1
-
-    flush_block(current_block)
-    return experiences
-
-def parse_projects(lines):
-    result = []
-    i = 0
-    while i < len(lines):
-        proj = {"title": "", "date": "", "description": ""}
-        if i < len(lines): proj["title"] = lines[i]; i += 1
-        if i < len(lines) and re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|\d{4})', lines[i]):
-            proj["date"] = lines[i]; i += 1
-        desc = []
-        while i < len(lines) and not is_section(lines[i]) and not re.match(r'[A-Z].* - .*', lines[i]):
-            desc.append(lines[i])
-            i += 1
-        proj["description"] = " ".join(desc)
-        result.append(proj)
-    return result
-
-def parse_certifications(lines):
-    result = []
-    i = 0
-    while i < len(lines):
-        cert = {"title": lines[i], "details": ""}
-        i += 1
-        details = []
-        while i < len(lines) and not is_section(lines[i]):
-            details.append(lines[i])
-            i += 1
-        cert["details"] = " ".join(details)
-        result.append(cert)
-    return result
-
-def parse_achievements(lines):
-    return [line.lstrip("• ").strip() for line in lines if line]
-
-def process_file(path):
-    ext = os.path.splitext(path)[-1].lower()
-    if ext == '.pdf':
-        text = extract_text_from_pdf(path)
-    elif ext == '.docx':
-        text = extract_text_from_docx(path)
-    else:
-        print(f"⚠️ Skipping unsupported file: {path}")
-        return None
-
-    return parse_resume(text)
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Parse single resume or folder of resumes")
-    parser.add_argument("input_path", help="Path to a .pdf/.docx file or a folder")
-    parser.add_argument("--skills", default="skills.csv", help="Path to skills.csv")
-    args = parser.parse_args()
-
-    TECH_KEYWORDS = load_tech_keywords(args.skills)
-
-    input_path = args.input_path
-    if os.path.isdir(input_path):
-        # Folder mode
-        for fname in os.listdir(input_path):
-            full_path = os.path.join(input_path, fname)
-            if fname.lower().endswith((".pdf", ".docx")):
-                print(f"\n📄 Processing: {fname}")
-                result = process_file(full_path)
-                if result:
-                    print(json.dumps(result, indent=2, ensure_ascii=False))
-    else:
-        # Single file mode
-        result = process_file(input_path)
-        if result:
-            print(json.dumps(result, indent=2, ensure_ascii=False))
+    return {
+        "full_name": full_name,
+        "email": email,
+        "phone_number": phone_number,
+        "work_experience": mapped_work_exp
+    }

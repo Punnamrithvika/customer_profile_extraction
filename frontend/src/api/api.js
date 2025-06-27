@@ -1,19 +1,23 @@
 import axios from 'axios';
 import { saveAs } from 'file-saver';
 
-// Use environment variable for the API URL, with a fallback for local dev
+// Use environment variable for the API URL, fallback to localhost
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
+// Use relative path for Docker/Nginx proxying
 const apiClient = axios.create({
-    baseURL: `${API_URL}/api`,
+    baseURL: '/api',
     headers: {
         'Content-Type': 'application/json',
     },
 });
 
-export const uploadProfile = async (file, token) => {
+// ✅ Modified: Upload multiple profiles (folder of resumes)
+export const uploadProfiles = async (files, token) => {
     const formData = new FormData();
-    formData.append('file', file);
+    files.forEach(file => {
+        formData.append('files', file);
+    });
 
     const headers = {
         'Content-Type': 'multipart/form-data',
@@ -21,13 +25,19 @@ export const uploadProfile = async (file, token) => {
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
+    console.log("Headers being sent:", headers);
 
-    const response = await apiClient.post('/upload', formData, {
-        headers,
-    });
-    return response.data;
+    try {
+        const response = await apiClient.post('/upload-multiple', formData, { headers });
+        console.log("API response:", response);
+        return response.data;
+    } catch (err) {
+        console.error("API error:", err);
+        throw err;
+    }
 };
 
+// ✅ Unchanged: Get all parsed profiles with optional search
 export const getProfiles = async (search = '') => {
     const params = new URLSearchParams();
     if (search) {
@@ -37,6 +47,7 @@ export const getProfiles = async (search = '') => {
     return response.data;
 };
 
+// ✅ Unchanged: Export CSV of profiles
 export const exportProfiles = async (search = '') => {
     const params = new URLSearchParams();
     if (search) {
