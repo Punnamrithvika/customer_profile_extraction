@@ -154,14 +154,10 @@ async def upload_multiple_resumes(
     db: Session = Depends(get_db),
     current_user: User = Depends(admin_required)
 ):
-    print("Received upload request")
-    print("Current user:", current_user)
-    print("Files received:", [f.filename for f in files])
     results = []
     errors = []
     for file in files:
         try:
-            print(f"Processing file: {file.filename}")
             file_bytes = await file.read()
             extracted_data = parse_resume(file_bytes, file.filename)
             mapped_data = {
@@ -171,7 +167,6 @@ async def upload_multiple_resumes(
                 "work_experience": extracted_data.get("work_experience", []),
             }
             if not (mapped_data["full_name"] or mapped_data["email"] or mapped_data["phone_number"]):
-                print(f"Skipping {file.filename}: missing name, email, and phone_number")
                 errors.append(f"{file.filename}: Could not extract name, email, or phone number.")
                 continue
 
@@ -186,9 +181,7 @@ async def upload_multiple_resumes(
                 continue
             profile_to_create = ResumeDataCreate(**mapped_data)
             crud.create_profile(db=db, profile=profile_to_create)
-            print(f"Inserted {file.filename} into database.")
             results.append({"filename": file.filename, "status": "success"})
         except Exception as e:
-            print(f"Error processing {file.filename}: {e}")
             errors.append(f"{file.filename}: {str(e)}")
     return {"results": results, "errors": errors}
