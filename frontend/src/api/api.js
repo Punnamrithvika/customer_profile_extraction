@@ -12,7 +12,7 @@ const apiClient = axios.create({
     },
 });
 
-// ✅ Modified: Upload multiple profiles (folder of resumes)
+// Upload multiple profiles (folder of resumes)
 export const uploadProfiles = async (files, token) => {
     const formData = new FormData();
     files.forEach(file => {
@@ -25,19 +25,12 @@ export const uploadProfiles = async (files, token) => {
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
-    console.log("Headers being sent:", headers);
 
-    try {
-        const response = await apiClient.post('/upload-multiple', formData, { headers });
-        console.log("API response:", response);
-        return response.data;
-    } catch (err) {
-        console.error("API error:", err);
-        throw err;
-    }
+    const response = await apiClient.post('/upload-multiple', formData, { headers });
+    return response.data;
 };
 
-// ✅ Unchanged: Get all parsed profiles with optional search
+// Get all parsed profiles with optional search
 export const getProfiles = async (search = '') => {
     const params = new URLSearchParams();
     if (search) {
@@ -47,7 +40,7 @@ export const getProfiles = async (search = '') => {
     return response.data;
 };
 
-// ✅ Unchanged: Export CSV of profiles
+// Export CSV of profiles
 export const exportProfiles = async (search = '') => {
     const params = new URLSearchParams();
     if (search) {
