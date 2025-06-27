@@ -2,7 +2,7 @@ import os
 import json
 import re
 import traceback
-import fitz  # PyMuPDF for PDF
+import fitz 
 import cohere
 from dotenv import load_dotenv
 from docx import Document
@@ -123,8 +123,8 @@ def extract_resume_data(resume_text: str):
     try:
         parsed = json.loads(json_str)
     except Exception as e:
-        print("Raw Cohere output:\n", raw_output)
-        print("JSON parsing failed, retrying with chunked extraction...")
+        #print("Raw Cohere output:\n", raw_output)
+        #print("JSON parsing failed, retrying with chunked extraction...")
         # Fallback: Use chunked extraction if JSON is incomplete or invalid
         return extract_resume_data_chunked(resume_text)
 
@@ -182,6 +182,7 @@ def extract_text_from_file(filepath):
         return extract_text_from_docx(filepath)
     elif ext == "doc":
         print(f"Skipping {filepath}, convert into .docx first.")
+        raise ValueError(f"Skipping {filepath}, convert into .docx first.")
         return ""
     else:
         raise ValueError("Unsupported file type: " + ext)
@@ -230,7 +231,7 @@ def split_experience_sections(resume_text, max_chunks=5):
     """
     # Try to split by common section headers
     sections = re.split(r'\n(?=Experience|Work History|Work Experience|Professional Experience|Employment History|Professional Background)', resume_text, flags=re.IGNORECASE)
-    print("Sections found:", sections)
+    #print("Sections found:", sections)
     # Always include the first section (personal info, summary, etc.)
     head = sections[0]
     experiences = sections
@@ -271,7 +272,7 @@ def extract_resume_data_chunked(resume_text: str, chunk_size=5, rate_limit_secon
     try:
         parsed = json.loads(json_str)
     except Exception as e:
-        print("Raw Cohere output (head):\n", raw_output)
+        #print("Raw Cohere output (head):\n", raw_output)
         raise ValueError("Failed to parse JSON response from Cohere (head)") from e
 
     # Get personal info
@@ -293,9 +294,9 @@ def extract_resume_data_chunked(resume_text: str, chunk_size=5, rate_limit_secon
         json_str = clean_json_string(raw_output)
         try:
             parsed_chunk = json.loads(json_str)
-            print("Parsed chunk:", parsed_chunk)
+            #print("Parsed chunk:", parsed_chunk)
         except Exception as e:
-            print("Raw Cohere output (chunk):\n", raw_output)
+            #print("Raw Cohere output (chunk):\n", raw_output)
             continue  # skip this chunk if it fails
 
         work_exp = parsed_chunk.get("Work Experience", [])
