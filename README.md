@@ -5,6 +5,7 @@ This project is a full-stack Minimum Viable Product for extracting customer prof
 - **Frontend:** ReactJS
 - **Database:** PostgreSQL
 - **NLP:** spaCy, PyMuPDF, python-docx
+- **LLM:** Command Cohere R+
 - **Containerization:** Docker Compose
 
 ## Features
