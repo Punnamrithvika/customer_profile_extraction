@@ -10,8 +10,8 @@ This project is a full-stack Minimum Viable Product for extracting customer prof
 
 ## Features
 - Upload resumes (PDF/DOCX)
-- Extract name, email, phone, skills
-- Store and search profiles by skill
+- Extract name, email, phone, work experience(client, role,company,skills,domain,location)
+- Store and search profiles
 - Export profiles to CSV
 
 ## How to Run
